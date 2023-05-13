@@ -81,5 +81,8 @@ def log_scalars(writer, train_loss, test_loss, epoch):
     writer.add_scalar('test_loss', test_loss, epoch)
 
 
-def save_model(model, save_path):
+def save_model(model, config):
+    log_str = exp_str(config)
+    save_path = os.path.join(config['LOGGING']['save_path'], log_str + '.pt')
+
     torch.save(model.state_dict(), save_path)

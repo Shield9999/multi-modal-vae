@@ -1,6 +1,7 @@
 configs/
 *ipynb/
 outs/
+saves/
 logs/
 
 # Byte-compiled / optimized / DLL files

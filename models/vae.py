@@ -53,7 +53,7 @@ class VAE(nn.Module):
         px_z = self.px_z(*self.decoder(z))
         return qz_x, px_z, z
     
-    def sample(self, N, K):
+    def generate(self, N, K):
         self.eval()
         with torch.no_grad():
             pz = self.pz(*self.pz_params)
@@ -174,6 +174,106 @@ class MNISTVAE(VAE):
 
     def analyse(self, x, run_path, epoch):
         z_emb, zsl, kls_df = super(MNISTVAE, self).analyse(x, K=10)
+        labels = ['Prior', self.modelname.lower()]
+        logging.plot_embeddings(z_emb, zsl, labels, '{}/emb_umap_{:03d}.png'.format(run_path, epoch))
+        logging.plot_kls_df(kls_df, '{}/kldistance_{:03d}.png'.format(run_path, epoch))
+
+
+class SVHNEncoder(nn.Module):
+    def __init__(self, latent_dim) -> None:
+        super(SVHNEncoder, self).__init__()
+
+        # input shape: 3 x 32 x 
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, 4, 2, 1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, 4, 2, 1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(64, 128, 4, 2, 1, bias=True),
+            nn.ReLU(True),
+        )
+        # encoder output (128, 4, 4)
+
+        self.c1 = nn.Conv2d(128, latent_dim, 4, 1, 0, bias=True)
+        self.c2 = nn.Conv2d(128, latent_dim, 4, 1, 0, bias=True)
+
+    def forward(self, x):
+        enc = self.encoder(x)
+        mu = self.c1(enc).squeeze()
+        logvar = self.c2(enc).squeeze()
+        logvar = F.softmax(logvar, dim=-1) * logvar.size(-1) + 1e-6
+
+        return mu, logvar
+
+
+class SVHNDecoder(nn.Module):
+    def __init__(self, latent_dim) -> None:
+        super(SVHNDecoder, self).__init__()
+
+        # input shape (latent_dim, 1, 1)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(latent_dim, 128, 4, 1, 0, bias=True),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=True),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(64, 32, 4, 2, 1, bias=True),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 3, 4, 2, 1, bias=True),
+            nn.Sigmoid()
+        )
+        # decoder output (3, 32, 32)
+
+    def forward(self, z):
+        z = z.unsqueeze(-1).unsqueeze(-1)
+        out = self.decoder(z.view(-1, *z.size()[-3:]))
+        out = out.view(*z.size()[:-3], *out.size()[1:])
+
+        length_scale = torch.tensor(0.75).to(z.device)
+
+        return out, length_scale
+
+
+class SVHNVAE(VAE):
+    def __init__(self, params, learn_prior=False) -> None:
+        super(SVHNVAE, self).__init__(
+            prior_dist=torch.distributions.Laplace,
+            likelihood_dist=torch.distributions.Laplace,
+            posterior_dist=torch.distributions.Laplace,
+            encoder=SVHNEncoder(params['latent_dim']),
+            decoder=SVHNDecoder(params['latent_dim']),
+            params=params
+        )
+
+        self._pz_params = nn.ParameterList([
+            nn.Parameter(torch.zeros(1, params['latent_dim']), requires_grad=False), # mu
+            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=learn_prior) # logvar
+        ])
+
+        self.modelname = 'svhn_vae'
+        self.data_size = torch.tensor([3, 32, 32])
+        self.scaling_factor = 1.0
+
+    @property
+    def pz_params(self):
+        return self._pz_params[0], F.softmax(self._pz_params[1], dim=1) * self._pz_params[1].size(-1) + 1e-6
+    
+    def generate(self, run_path, epoch):
+        N, K = 64, 9
+        samples = super(SVHNVAE, self).generate(N, K).cpu()
+
+        samples = samples.view(K, N, *samples.size()[1:]).transpose(0, 1)
+        s = [make_grid(t, nrow=int(np.sqrt(K)), padding=0) for t in samples]
+        save_image(torch.stack(s),
+                     '{}/gen_samples_{:03d}.png'.format(run_path, epoch),
+                        nrow=int(np.sqrt(N)))
+        
+    def reconstruct(self, x, run_path, epoch):
+        recon = super(SVHNVAE, self).reconstruct(x[:8])
+        comp = torch.cat([x[:8], recon]).data.cpu()
+        save_image(comp, '{}/recon_{:03d}.png'.format(run_path, epoch))
+
+    def analyse(self, x, run_path, epoch):
+        z_emb, zsl, kls_df = super(SVHNVAE, self).analyse(x, K=10)
         labels = ['Prior', self.modelname.lower()]
         logging.plot_embeddings(z_emb, zsl, labels, '{}/emb_umap_{:03d}.png'.format(run_path, epoch))
         logging.plot_kls_df(kls_df, '{}/kldistance_{:03d}.png'.format(run_path, epoch))

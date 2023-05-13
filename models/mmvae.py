@@ -10,7 +10,7 @@ from umap import UMAP
 import utils.logging as logging
 from utils.criteria import kl_divergence
 from models.modelutils import tensors_to_df
-from models.vae import VAE
+from models.vae import VAE, MNISTVAE, SVHNVAE
 
 class MMVAE(nn.Module):
     def __init__(self,
@@ -96,3 +96,45 @@ class MMVAE(nn.Module):
 
         return ret, torch.cat(zsl, 0).cpu().numpy(), kls_df
             
+
+class MNISTMMVAE(MMVAE):
+    def __init__(self, params, learn_prior):
+        super(MNISTMMVAE, self).__init__(torch.distributions.Laplace, params, MNISTVAE, SVHNVAE)
+        
+        self._pz_params = nn.ParameterList([
+            nn.Parameter(torch.zeros(1, params['latent_dim']), requires_grad=False), # mu
+            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=learn_prior) # logvar
+        ])
+
+        self.modulename = 'mnist-svhn'
+
+    @property
+    def pz_params(self):
+        return self._pz_params[0], F.softmax(self._pz_params[1], dim=-1) * self._pz_params[1].size(-1)
+    
+    def generate(self, run_path, epoch):
+        N = 64
+        samples_list = super(MNISTMMVAE, self).generate(N)
+        for i, samples in enumerate(samples_list):
+            samples = samples.data.cpu()
+            samples = samples.view(N, *samples.size()[1:])
+            save_image(samples, run_path + '/generated_{}_{}.png'.format(self.modulename, i), nrow=8)
+
+    def reconstruct(self, x, run_path, epoch):
+        recons_mat = super(MNISTMMVAE, self).reconstruct([d[:8] for d in data])
+        for i, recons in enumerate(recons_mat):
+            for o, recon in enumerate(recons):
+                _data = data[r][:8].cpu()
+                recon = recon.squeeze(0).cpu()
+
+                _data = _data if r == 1 else resize_img(_data, self.vaes[1].dataSize)
+                recon = recon if o == 1 else resize_img(recon, self.vaes[1].dataSize)
+                comp = torch.cat([_data, recon])
+                save_image(comp, '{}/recon_{}x{}_{:03d}.png'.format(runPath, r, o, epoch))
+
+    def analyse(self, data, runPath, epoch):
+        z_emb, zsl, kls_df = super(SVHNVAE, self).analyse(x, K=10)
+        labels = ['Prior', self.modelname.lower()]
+        logging.plot_embeddings(z_emb, zsl, labels, '{}/emb_umap_{:03d}.png'.format(run_path, epoch))
+        logging.plot_kls_df(kls_df, '{}/kldistance_{:03d}.png'.format(run_path, epoch))
+

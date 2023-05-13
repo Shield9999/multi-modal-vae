@@ -60,7 +60,7 @@ def main(config):
         pbar.set_description(f'Epoch {epoch}: train loss {train_loss:.4f}, test loss {test_loss:.4f}')
 
     # Save model
-    loggings.save_model(model, save_path)
+    loggings.save_model(model, config)
     model.generate(save_path, epoch)
 
 

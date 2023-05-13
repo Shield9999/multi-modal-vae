@@ -1,10 +1,24 @@
+import os
+
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from matplotlib.lines import Line2D
+
+def exp_str(config):
+    components = []
+    components.append(config['project'])
+    components.append(config['DATA']['name'])
+    components.append(config['MODEL']['name'])
+    components.append(config['postfix'])
+    return '_'.join(components)
+
 
 def custom_cmap(n):
     """Create customised colormap for scattered latent plot of n categories.
@@ -39,3 +53,33 @@ def plot_kls_df(df, file_path):
         plt.legend(loc='best', fontsize='22')
         plt.savefig(file_path, bbox_inches='tight')
         plt.close()
+
+
+def log_recon_analysis(model, data_loader, file_path, epoch, device='cpu'):
+    model.eval()
+    with torch.no_grad():
+        for (data, label) in data_loader:
+            data = data.to(device)
+            model.reconstruct(data, file_path, epoch)
+            model.analyse(data, file_path, epoch)
+            break
+
+
+def get_writer(config):
+    logging_config = config['LOGGING']
+    log_str = exp_str(config)
+
+    log_path = logging_config['log_path']
+    log_dir = os.path.join(log_path, log_str)
+    writer = SummaryWriter(log_dir=log_dir)
+
+    return writer
+
+
+def log_scalars(writer, train_loss, test_loss, epoch):
+    writer.add_scalar('train_loss', train_loss, epoch)
+    writer.add_scalar('test_loss', test_loss, epoch)
+
+
+def save_model(model, save_path):
+    torch.save(model.state_dict(), save_path)

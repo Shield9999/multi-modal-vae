@@ -49,7 +49,7 @@ class VAE(nn.Module):
     def forward(self, x, K=1):
         self._qz_x_params = self.encoder(x)
         qz_x = self.qz_x(*self.qz_x_params)
-        z = qz_x.rsample(torch.Soze([K]))
+        z = qz_x.rsample(torch.Size([K]))
         px_z = self.px_z(*self.decoder(z))
         return qz_x, px_z, z
     
@@ -115,11 +115,11 @@ class MNISTEncoder(nn.Module):
     
 
 class MNISTDecoder(nn.Module):
-    def __init__(self, latent_dim, hidden_layers, hidden_dim) -> None:
+    def __init__(self, latent_dim, hidden_layers, hidden_dim=400) -> None:
         super(MNISTDecoder, self).__init__()
 
         modules = []
-        modules.append(nn.Sequential(nn.Linear(784, hidden_dim), nn.ReLU(True)))
+        modules.append(nn.Sequential(nn.Linear(latent_dim, hidden_dim), nn.ReLU(True)))
         for _ in range(hidden_layers-1):
             modules.append(nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True)))
         self.decoder = nn.Sequential(*modules)
@@ -168,7 +168,7 @@ class MNISTVAE(VAE):
                    nrow=int(np.sqrt(N)))
 
     def reconstruct(self, x, run_path, epoch):
-        recon = super(MNISTVAE, self).reconstruct(x[:8]).cpu()
+        recon = super(MNISTVAE, self).reconstruct(x[:8])
         comp = torch.cat([x[:8], recon]).data.cpu()
         save_image(comp, '{}/recon_{:03d}.png'.format(run_path, epoch))
 

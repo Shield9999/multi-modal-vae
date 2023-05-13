@@ -32,13 +32,13 @@ def get_model(config):
 
 def get_optimizer(model, config):
     optim_configs = config['OPTIMIZER']
-    optim_type = optim_configs['type']
+    optim_type = optim_configs['name'].lower()
     optim_params = optim_configs['params']
 
     if optim_type == 'adam':
-        optimizer = torch.optim.Adam(model.parameters(), **optim_params)
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), **optim_params)
     elif optim_type == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), **optim_params)
+        optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), **optim_params)
     else:
         raise ValueError('Optimizer type not recognized.')
 

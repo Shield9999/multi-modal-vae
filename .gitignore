@@ -1,8 +1,15 @@
 configs/
-*ipynb/
+*ipynb
+data/
+*.sh
+
+# logging
+wandb/
 outs/
 saves/
 logs/
+*.err
+*.out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

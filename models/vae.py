@@ -5,11 +5,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.utils import save_image, make_grid
 
+import pandas as pd
 from umap import UMAP
 
 import utils.logging as logging
 from utils.criteria import kl_divergence
-from models.modelutils import tensors_to_df
+
+def tensor_to_df(tensor, ax_names=None):
+    assert tensor.ndim == 2, "Can only currently convert 2D tensors to dataframes"
+    df = pd.DataFrame(data=tensor, columns=np.arange(tensor.shape[1]))
+    return df.melt(value_vars=df.columns,
+                   var_name=('variable' if ax_names is None else ax_names[0]),
+                   value_name=('value' if ax_names is None else ax_names[1]))
+
+
+def tensors_to_df(tensors, head=None, keys=None, ax_names=None):
+    dfs = [tensor_to_df(tensor, ax_names=ax_names) for tensor in tensors]
+    df = pd.concat(dfs, keys=(np.arange(len(tensors)) if keys is None else keys))
+    df.reset_index(level=0, inplace=True)
+    if head is not None:
+        df.rename(columns={'level_0': head}, inplace=True)
+    return df
 
 class VAE(nn.Module):
     def __init__(self,
@@ -134,7 +150,7 @@ class MNISTDecoder(nn.Module):
     
 
 class MNISTVAE(VAE):
-    def __init__(self, params, learn_prior=False):
+    def __init__(self, params):
         super(MNISTVAE, self).__init__(
             prior_dist=torch.distributions.Laplace,
             likelihood_dist=torch.distributions.Laplace,
@@ -146,7 +162,7 @@ class MNISTVAE(VAE):
 
         self._pz_params = nn.ParameterList([
             nn.Parameter(torch.zeros(1, params['latent_dim']), requires_grad=False), # mu
-            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=learn_prior) # logvar
+            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=params['learn_prior']) # logvar
         ])
 
         self.modelname = 'mnist_vae'
@@ -246,7 +262,7 @@ class SVHNVAE(VAE):
 
         self._pz_params = nn.ParameterList([
             nn.Parameter(torch.zeros(1, params['latent_dim']), requires_grad=False), # mu
-            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=learn_prior) # logvar
+            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=params['learn_prior']) # logvar
         ])
 
         self.modelname = 'svhn_vae'

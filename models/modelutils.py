@@ -1,10 +1,7 @@
-import numpy as np
-
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-import pandas as pd
+import models.vae as vae
+import models.mmvae as mmvae
 
 def load_model(loading_path):
     model = torch.load(loading_path)
@@ -22,8 +19,11 @@ def get_model(config):
     else:
         dataset_name = config['DATA']['name']
         if dataset_name == 'MNIST':
-            from models.vae import MNISTVAE
-            model = MNISTVAE(model_configs)
+            model = vae.MNISTVAE(model_configs)
+        elif dataset_name == 'SVHN':
+            model = vae.SVHNVAE(model_configs)
+        elif dataset_name == 'MNIST-SVHN':
+            model = mmvae.MNISTSVHNMMVAE(model_configs)
         else:
             raise NotImplementedError('Model not implemented.')
 
@@ -43,21 +43,4 @@ def get_optimizer(model, config):
         raise ValueError('Optimizer type not recognized.')
 
     return optimizer
-
-
-def tensor_to_df(tensor, ax_names=None):
-    assert tensor.ndim == 2, "Can only currently convert 2D tensors to dataframes"
-    df = pd.DataFrame(data=tensor, columns=np.arange(tensor.shape[1]))
-    return df.melt(value_vars=df.columns,
-                   var_name=('variable' if ax_names is None else ax_names[0]),
-                   value_name=('value' if ax_names is None else ax_names[1]))
-
-
-def tensors_to_df(tensors, head=None, keys=None, ax_names=None):
-    dfs = [tensor_to_df(tensor, ax_names=ax_names) for tensor in tensors]
-    df = pd.concat(dfs, keys=(np.arange(len(tensors)) if keys is None else keys))
-    df.reset_index(level=0, inplace=True)
-    if head is not None:
-        df.rename(columns={'level_0': head}, inplace=True)
-    return df
 

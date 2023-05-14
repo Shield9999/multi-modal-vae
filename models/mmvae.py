@@ -1,16 +1,33 @@
 import numpy as np
+from itertools import combinations
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.utils import save_image, make_grid
+from torchvision.utils import save_image
 
+import pandas as pd
 from umap import UMAP
 
 import utils.logging as logging
 from utils.criteria import kl_divergence
-from models.modelutils import tensors_to_df
-from models.vae import VAE, MNISTVAE, SVHNVAE
+from models.vae import MNISTVAE, SVHNVAE
+
+def tensor_to_df(tensor, ax_names=None):
+    assert tensor.ndim == 2, "Can only currently convert 2D tensors to dataframes"
+    df = pd.DataFrame(data=tensor, columns=np.arange(tensor.shape[1]))
+    return df.melt(value_vars=df.columns,
+                   var_name=('variable' if ax_names is None else ax_names[0]),
+                   value_name=('value' if ax_names is None else ax_names[1]))
+
+
+def tensors_to_df(tensors, head=None, keys=None, ax_names=None):
+    dfs = [tensor_to_df(tensor, ax_names=ax_names) for tensor in tensors]
+    df = pd.concat(dfs, keys=(np.arange(len(tensors)) if keys is None else keys))
+    df.reset_index(level=0, inplace=True)
+    if head is not None:
+        df.rename(columns={'level_0': head}, inplace=True)
+    return df
 
 class MMVAE(nn.Module):
     def __init__(self,
@@ -46,7 +63,7 @@ class MMVAE(nn.Module):
         for e, zs in enumerate(zss):
             for d, vae in enumerate(self.vaes):
                 if e != d:
-                    px_zs[e][d] = vae.px_z(*vae.decoder(zs[d]))
+                    px_zs[e][d] = vae.px_z(*vae.decoder(zs))
 
         return qz_xs, px_zs, zss
     
@@ -73,7 +90,7 @@ class MMVAE(nn.Module):
     def analyse(self, x, K):
         self.eval()
         with torch.no_grad():
-            qz_x, _, zss = self.forward(x, K)
+            qz_xs, _, zss = self.forward(x, K)
             pz = self.pz(*self.pz_params)
             zss = [pz.sample(torch.Size([K, x[0].size(0)])).view(-1, pz.batch_shape[-1]), 
                    *[zs.view(-1, zs.size(-1)) for zs in zss]]
@@ -97,16 +114,16 @@ class MMVAE(nn.Module):
         return ret, torch.cat(zsl, 0).cpu().numpy(), kls_df
             
 
-class MNISTMMVAE(MMVAE):
-    def __init__(self, params, learn_prior):
-        super(MNISTMMVAE, self).__init__(torch.distributions.Laplace, params, MNISTVAE, SVHNVAE)
+class MNISTSVHNMMVAE(MMVAE):
+    def __init__(self, params):
+        super(MNISTSVHNMMVAE, self).__init__(torch.distributions.Laplace, params, MNISTVAE, SVHNVAE)
         
         self._pz_params = nn.ParameterList([
             nn.Parameter(torch.zeros(1, params['latent_dim']), requires_grad=False), # mu
-            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=learn_prior) # logvar
+            nn.Parameter(torch.ones(1, params['latent_dim']), requires_grad=params['learn_prior']) # logvar
         ])
 
-        self.modulename = 'mnist-svhn'
+        self.modelname = 'mnist-svhn'
 
     @property
     def pz_params(self):
@@ -114,27 +131,29 @@ class MNISTMMVAE(MMVAE):
     
     def generate(self, run_path, epoch):
         N = 64
-        samples_list = super(MNISTMMVAE, self).generate(N)
+        samples_list = super(MNISTSVHNMMVAE, self).generate(N)
         for i, samples in enumerate(samples_list):
             samples = samples.data.cpu()
             samples = samples.view(N, *samples.size()[1:])
             save_image(samples, run_path + '/generated_{}_{}.png'.format(self.modulename, i), nrow=8)
 
     def reconstruct(self, x, run_path, epoch):
-        recons_mat = super(MNISTMMVAE, self).reconstruct([d[:8] for d in data])
-        for i, recons in enumerate(recons_mat):
+        recons_mat = super(MNISTSVHNMMVAE, self).reconstruct([d[:8] for d in x])
+        for r, recons in enumerate(recons_mat):
             for o, recon in enumerate(recons):
-                _data = data[r][:8].cpu()
+                _data = x[r][:8].cpu()
                 recon = recon.squeeze(0).cpu()
 
-                _data = _data if r == 1 else resize_img(_data, self.vaes[1].dataSize)
-                recon = recon if o == 1 else resize_img(recon, self.vaes[1].dataSize)
+                _data = _data if r == 1 else resize_img(_data, self.vaes[1].data_size)
+                recon = recon if o == 1 else resize_img(recon, self.vaes[1].data_size)
                 comp = torch.cat([_data, recon])
-                save_image(comp, '{}/recon_{}x{}_{:03d}.png'.format(runPath, r, o, epoch))
+                save_image(comp, '{}/recon_{}x{}_{:03d}.png'.format(run_path, r, o, epoch))
 
-    def analyse(self, data, runPath, epoch):
-        z_emb, zsl, kls_df = super(SVHNVAE, self).analyse(x, K=10)
+    def analyse(self, x, run_path, epoch):
+        z_emb, zsl, kls_df = super(MNISTSVHNMMVAE, self).analyse(x, K=10)
         labels = ['Prior', self.modelname.lower()]
         logging.plot_embeddings(z_emb, zsl, labels, '{}/emb_umap_{:03d}.png'.format(run_path, epoch))
         logging.plot_kls_df(kls_df, '{}/kldistance_{:03d}.png'.format(run_path, epoch))
 
+def resize_img(img, refsize):
+    return F.pad(img, (2, 2, 2, 2)).expand(img.size(0), *refsize)

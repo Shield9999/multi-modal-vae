@@ -1,15 +1,19 @@
 import os
 
-import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from matplotlib.lines import Line2D
+
+from utils.epochs import unpack_data
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 def exp_str(config):
     components = []
@@ -58,8 +62,8 @@ def plot_kls_df(df, file_path):
 def log_recon_analysis(model, data_loader, file_path, epoch, device='cpu'):
     model.eval()
     with torch.no_grad():
-        for (data, label) in data_loader:
-            data = data.to(device)
+        for data in data_loader:
+            data = unpack_data(data, device)
             model.reconstruct(data, file_path, epoch)
             model.analyse(data, file_path, epoch)
             break
@@ -71,14 +75,22 @@ def get_writer(config):
 
     log_path = logging_config['log_path']
     log_dir = os.path.join(log_path, log_str)
-    writer = SummaryWriter(log_dir=log_dir)
+    logger = logging_config['logger']
+    if logger == 'wandb' and wandb is not None:
+        writer = 'wandb'
+        wandb.init(project=config['project'], name=log_str)
+    else:
+        writer = SummaryWriter(log_dir=log_dir)
 
     return writer
 
 
 def log_scalars(writer, train_loss, test_loss, epoch):
-    writer.add_scalar('train_loss', train_loss, epoch)
-    writer.add_scalar('test_loss', test_loss, epoch)
+    if writer == 'wandb' and wandb is not None:
+        wandb.log({'train_loss': train_loss, 'test_loss': test_loss, 'epoch': epoch})
+    else:
+        writer.add_scalar('train_loss', train_loss, epoch)
+        writer.add_scalar('test_loss', test_loss, epoch)
 
 
 def save_model(model, config):

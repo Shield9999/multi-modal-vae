@@ -7,8 +7,8 @@ import tqdm
 
 from mmdatasets.datautils import get_dataloader
 from models.modelutils import get_model, get_optimizer
+from utils.criteria import get_criteria
 
-import utils.criteria as cr
 import utils.epochs as epochs
 import utils.logging as loggings
 
@@ -41,7 +41,7 @@ def main(config):
     # Get data, optimizer, criteria
     train_loader, test_loader = get_dataloader(config)
     optimizer = get_optimizer(model, config)
-    criteria = cr.elbo
+    criteria, t_criteria = get_criteria(config)
 
     # logging
     log_path = config['LOGGING']['log_path']
@@ -52,7 +52,7 @@ def main(config):
     pbar = tqdm.tqdm(range(config['OPTIMIZER']['epochs']))
     for epoch in pbar:
         train_loss = epochs.train_epoch(train_loader, model, optimizer, criteria, device=device)
-        test_loss = epochs.test_epoch(test_loader, model, criteria, device=device)
+        test_loss = epochs.test_epoch(test_loader, model, t_criteria, device=device)
         
         loggings.log_recon_analysis(model, test_loader, log_path, epoch, device=device)
         loggings.log_scalars(writer, train_loss, test_loss, epoch)

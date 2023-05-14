@@ -1,12 +1,8 @@
 import os
 
-import numpy as np
-
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-from torch.utils.data import DataLoader, TensorDataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, transforms
 
 
@@ -72,12 +68,12 @@ def mnist_svhn(configs):
     train_svhn = datasets.SVHN(data_path, split='train', download=True, transform=tx)
     test_svhn = datasets.SVHN(data_path, split='test', download=True, transform=tx)
 
-    train_svhn.labels = torch.LongTensor(train_svhn.labels.squeeze().astype(int)) % 10
-    test_svhn.labels = torch.LongTensor(test_svhn.labels.squeeze().astype(int)) % 10
+    train_svhn.labels = torch.LongTensor(train_svhn.labels.squeeze()) % 10
+    test_svhn.labels = torch.LongTensor(test_svhn.labels.squeeze()) % 10
 
     # svhn labels need extra work
-    train_svhn.labels = torch.LongTensor(train_svhn.labels.squeeze().astype(int)) % 10
-    test_svhn.labels = torch.LongTensor(test_svhn.labels.squeeze().astype(int)) % 10
+    train_svhn.labels = torch.LongTensor(train_svhn.labels.squeeze()) % 10
+    test_svhn.labels = torch.LongTensor(test_svhn.labels.squeeze()) % 10
 
     mnist_l, mnist_li = train_mnist.targets.sort()
     svhn_l, svhn_li = train_svhn.labels.sort()
@@ -115,6 +111,19 @@ def get_svhn(data_path):
                                         transform=transforms.ToTensor())
     return train_dataset, test_dataset
 
+class MNISTSVHN(Dataset):
+    def __init__(self, mnist, svhn):
+        super().__init__()
+
+        self.mnist = mnist
+        self.svhn = svhn
+
+    def __len__(self):
+        return len(self.mnist) 
+    
+    def __getitem__(self, idx):
+        return self.mnist[idx], self.svhn[idx]
+
 
 def get_mnist_svhn(configs):
     data_path = configs['DATA']['data_path']
@@ -137,13 +146,12 @@ def get_mnist_svhn(configs):
     train_mnist_dataset, test_mnist_dataset = get_mnist(data_path)
     train_svhn_dataset, test_svhn_dataset = get_svhn(data_path)
 
-    train_mnist_svhn = TensorDataset([
-        Subset(train_mnist_dataset, train_mnist),
-        Subset(train_svhn_dataset, train_svhn)
-    ])
-    test_mnist_svhn = TensorDataset([
-        Subset(test_mnist_dataset, test_mnist),
-        Subset(test_svhn_dataset, test_svhn)
-    ])
+    train_mnist_dataset = Subset(train_mnist_dataset, train_mnist)
+    train_svhn_dataset = Subset(train_svhn_dataset, train_svhn)
+    test_mnist_dataset = Subset(test_mnist_dataset, test_mnist)
+    test_svhn_dataset = Subset(test_svhn_dataset, test_svhn)
+
+    train_mnist_svhn = MNISTSVHN(train_mnist_dataset, train_svhn_dataset)
+    test_mnist_svhn = MNISTSVHN(test_mnist_dataset, test_svhn_dataset)
 
     return train_mnist_svhn, test_mnist_svhn
